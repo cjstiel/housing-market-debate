@@ -1,4 +1,4 @@
-# The housing market in public and political debate: A text analysis
+# The housing market in public and political debate: a text analysis
 
 research project 'Wohnkosten, Lebenszufriedenheit, Sicherheitsempfinden und Narrative: Eine Betrachtung der langfristigen Verteilungswirkungen von Wohnungsmarktzyklen (WLSN)' at DIW Berlin
  | 2020-2023
@@ -34,7 +34,7 @@ We estimate a _Latent Dirichlet Allocation (LDA) model_ with 8 topics for each m
 
 ## Sentiment and emotion analysis
 
-Next, we analyze the sentiments and emotions of the newspaper articles and the minutes. The focus is on
+Finally, we analyze the sentiments and emotions of the newspaper articles and the minutes. The focus is on
 
 - whether the reporting on the housing market tends to be positive or negative in tone and how this evolves over time
 - how the tone differs between topics
