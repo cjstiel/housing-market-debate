@@ -1,6 +1,6 @@
 # The housing market in public and political debate: a text analysis
 
-research project 'Wohnkosten, Lebenszufriedenheit, Sicherheitsempfinden und Narrative: Eine Betrachtung der langfristigen Verteilungswirkungen von Wohnungsmarktzyklen (WLSN)' at DIW Berlin
+research project _Wohnkosten, Lebenszufriedenheit, Sicherheitsempfinden und Narrative: Eine Betrachtung der langfristigen Verteilungswirkungen von Wohnungsmarktzyklen (WLSN)_ at DIW Berlin
  | 2020-2023
 
 Contributors: Felix Aubele, Konstantin Kholodilin, Linus Pfeiffer, Caroline Stiel 
@@ -24,7 +24,7 @@ Second, we apply the following steps for pre-processing:
 1. Delete punctuation, numbers etc.
 2. Transform all letters to lowercase.
 3. Remove stop words.
-4. Transform text into lists of words(_bag of words approach)._
+4. Transform text into lists of words (_bag of words approach)._
 5. Compute document-term-matrix (DTM)
 
 ## Topic model
