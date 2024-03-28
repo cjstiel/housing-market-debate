@@ -1,0 +1,981 @@
+---
+title: "Ergebnisse des Topic Models und der Sentiment Analyse für die F.A.Z.-Artikel (1950-2021)"
+author: "Felix Aubele, Caroline Stiel"
+date: "28 02 2023"
+output:
+  pdf_document: default
+  html_document: default
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# ==============================================================================
+#                             DIW Berlin
+#
+# Project:  Wohnkosten, Lebenszufriedenheit, Sicherheitsempfinden und Narrative: 
+#           Eine Betrachtung der langfristigen Verteilungswirkungen von
+#           Wohnungsmarktzyklen (2020-2023)
+#
+# ------------------------------------------------------------------------------
+#
+#	 	CONTENT: RESULTS FROM TOPIC MODEL AND SENTIMENT ANALYSIS (F.A.Z.)
+#
+# 	OUTLINE: PART 1: Load data
+#				     PART 2: Prepare data
+#                 2.1 Prepare topics
+#                 2.2 Compute sentiment scores
+#                 2.3 Compute binary sentiment scores (polarity)
+#				     PART 3: Topic analysis
+#                 3.1 Main topics
+#                 3.2 Sub topics
+#				     PART 4: Polarity
+#                 4.1 Polarity full sample (all topics)
+#                 4.2 Polarity by main topic
+#                 4.3 Polarity by sub topic
+#				     PART 5: Weighted sentiment scores over time
+#                 5.1 Sentiments full sample (all topics)
+#                 5.2 Sentiments by main topic
+#                 5.3 Sentiments by sub topic
+#				     PART 6: Most positive and negative words
+#
+# -------------------------------------------------------------------------------
+# code author: Felix Aubele and Caroline Stiel (DIW Berlin)
+#
+# First created --- August 29, 2022										
+# Last modified --- February 28, 2023 (cs)
+# ------------------------------------------------------------------------------
+# content: This code analyzes the results from the sentiment analysis of 
+# newspaper articles from Fankfurter Allgemeine Zeitung (F.A.Z.).
+# ==============================================================================
+```
+
+
+In dieser Analyse werden alle *F.A.Z.*-Artikel betrachtet, die sich mit dem 
+Wohnungsmarkt beschäftigen und zwischen 1950 bis 2021 erschienen sind. Um die 
+Artikel zu identifizieren, wurden alle in dem Zeitraum erschienen Artikel mit
+Hilfe einer Liste von eindeutigen Wohnungmarktbegriffen durchsucht. Dadurch 
+wurden 62829 Artikel identifiziert. Diese wurden mit der Nutzung von Wörterbuch 
+basierter Sentimentanalyse auf ihre vermittelte Stimmungslage untersucht. Diese 
+Ergebnisse werden hier dargestellt.
+
+Die Ergebnisse wurden mit dem Wörterbuch *SentiMerge* erzielt. Bei der Analyse der
+Texte wurde die Wortreihenfolge nicht beachtet *(bag of words approach)*, 
+Stopwords wurden entfernt und alle Wörter wurden kleingeschrieben und lemmatisiert. 
+
+
+## Preambule
+
+```{r}
+
+# ==============================================================================
+# 0) Initial settings
+# ==============================================================================
+
+rm(list = ls())
+
+# load libraries
+# --------------
+library(openxlsx)
+library(stringr)
+library(XML)
+library(tidyverse)
+library(patchwork)
+
+# set options for dplyr package
+# -----------------------------
+options(dplyr.summarise.inform = FALSE,scipen=999)
+
+# set R system language (including dates etc.) to German
+# ------------------------------------------------------
+Sys.setlocale('LC_ALL', 'german')
+
+# choose dictionary
+# -----------------
+dict = "SentiMerge"
+
+# choose lemmatization procedure
+# -------------------------------
+lemma = "with"
+
+# choose newspaper
+# ----------------
+newspaper = "FAZ"
+
+# define paths and data input/output names
+# ----------------------------------------
+sFolder = "" #"Y:/"
+sInFile1 = paste0("Data/",newspaper,"/articlelists_sentiment/Sentiment_"
+                 ,newspaper,"_Housing_",lemma,"_lemma_",dict,".xlsx")
+sInFile2 = paste0("Data/",newspaper,"/articlelists_sentiment/Words_positive_Sentiment_"
+                 ,newspaper,"_Housing_",lemma,"_lemma_",dict,".rds")
+sInFile3 = paste0("Data/",newspaper,"/articlelists_sentiment/Words_negative_Sentiment_"
+                 ,newspaper,"_Housing_",lemma,"_lemma_",dict,".rds")
+
+sOutFile1 = "Draft/figures/sentiment-analysis/Fig_sentiment_analysis_FAZ_sentimerge_sentiments.pdf"
+sOutFile2 = "Draft/figures/sentiment-analysis/Fig_sentiment_analysis_FAZ_sentimerge_polarity.pdf"
+sOutFile3 = "Draft/figures/topic-modelling/fig_topic_modelling_Zeitverlauf_FAZ.pdf"
+sOutFile4 = "Data/FAZ/articlelists_sentiment/Sentiment_FAZ_aggr_subtopics.rds"
+```
+
+
+## Vorbereitung der Daten
+
+Zunächst werden die Ergebnisse der Sentimentanalyse geladen.
+
+
+```{r}
+# ==============================================================================
+# 1) Load data
+# ==============================================================================
+
+# load article lists with articles' sentiment scores
+# --------------------------------------------------
+Y = read.xlsx(paste0(sFolder, sInFile1))
+
+# load list of positive words appearing in the articles and their sentiment scores
+# ------------------------------------------------------------------------------
+words_pos <- readRDS(paste0(sFolder, sInFile2))
+
+# load list of negative words appearing in the articles and their sentiment scores
+# ------------------------------------------------------------------------------
+words_neg <- readRDS(paste0(sFolder, sInFile3))
+
+```
+
+
+Die geladenen Ergebnisse geben den geschätzten Sentimentwert für jeden Artikel 
+wieder. Es gibt drei verschiedene Sentimentmaße:
+
+1. Differenz zwischen positiven und negativen Wörtern (Einmalnennung)
+2. Differenz zwischen positiven und negativen Wörtern (Gewichtung mit Häufigkeit der Wörter im Artikel)
+3. Differenz zwischen positiven und negativen Wörtern (Gewichtung mit Häufigkeit und individuellem Wort-Sentimentwert)
+
+
+Der ermittelte Sentimentwert eines Artikel wird mit der Artikellänge (Wortanzahl)
+normalisiert, damit jeder Artikel mit gleichen Gewicht in die Analyse eingeht.
+
+Um diese Ergebnisse aggregiert im Jahresverlauf zu betrachten, wird der 
+Jahresdurchschnitt der Sentimentwerte aller Artikel gebildet, die in diesem Jahr
+zum Thema Wohnungsmarkt erschienen sind.
+
+Im Folgenden wird das Sentiment-Maß Nr.3 verwendet, d.h. die Differenz zwischen 
+positiven und negativen Wörtern gewichtet mit ihrer Häufigkeit und ihrem 
+Wort-Sentimentwert.
+
+```{r}
+
+# ==============================================================================
+# 2) Prepare data
+# ==============================================================================
+
+# recode 'Year' as numeric
+# -------------------------
+Y$Year <- as.integer(Y$Year)
+
+table(Y$LDA_topic_1_name)
+
+# ==============================================================================
+# 2.1) Prepare topics
+# ==============================================================================
+
+# recode main topics
+# ------------------
+Y = Y %>% mutate(LDA_topic_1_catnew = case_when(
+  LDA_topic_1==2 |  LDA_topic_1==4 |  LDA_topic_1==7 ~ "Wirtschaft"
+  ,LDA_topic_1==5  |  LDA_topic_1==9 |LDA_topic_1==3 ~ "Politik"
+  ,LDA_topic_1==6 |  LDA_topic_1==10  ~ "Andere Politikfelder"
+  ,LDA_topic_1==1 |  LDA_topic_1==8 ~ "Wohnraum als Lebensraum"))
+table(Y$LDA_topic_1_catnew,useNA="ifany")
+
+# recode main topics (en)
+# ------------------------
+Y = Y %>% mutate(LDA_topic_1_catnew_en = case_when(
+  LDA_topic_1==2 |  LDA_topic_1==4 |  LDA_topic_1==7 ~ "market"
+  ,LDA_topic_1==5  |  LDA_topic_1==9 |LDA_topic_1==3 ~ "policy"
+  ,LDA_topic_1==6 |  LDA_topic_1==10  ~ "other"
+  ,LDA_topic_1==1 |  LDA_topic_1==8 ~ "daily life"))
+table(Y$LDA_topic_1_catnew_en,useNA="ifany")
+
+# recode sub topics
+# ------------------
+Y = Y %>% mutate(LDA_topic_1_name_new = case_when(
+  LDA_topic_1==1 ~ "Architektur und Stadtbild"
+  , LDA_topic_1==2 ~ "Miet- und Baupreisentwicklung"
+  , LDA_topic_1==3 ~ "Wohnsituation und -politik (Rhein-Main)"
+  , LDA_topic_1==4 ~ "Immobilienmarkt"
+  , LDA_topic_1==5 ~ "Wohnungspolitik im Wahlkampf (Rhein-Main)"
+  , LDA_topic_1==6 ~ "Weltpolitik"
+  , LDA_topic_1==7 ~ "Wohnungsbau (Rhein-Main)"
+  , LDA_topic_1==8 ~ "Familienleben und Wohnumfeld"
+  , LDA_topic_1==9 ~ "Wohnungspolitik auf Bundesebene"
+  , LDA_topic_1==10 ~ "Unternehmen und Arbeitswelt"))
+table(Y$LDA_topic_1_name_new,useNA="ifany")
+
+
+# Delete all articles with category 'Andere Politikfelder'
+# --------------------------------------------------------
+Y = Y %>% filter(LDA_topic_1_catnew!= "Andere Politikfelder")
+table(Y$LDA_topic_1_catnew,useNA="ifany")
+
+
+# ==============================================================================
+# 2.2) Compute sentiment scores
+# ==============================================================================
+
+# compute yearly averages of weighted sentiment score
+# ---------------------------------------------------
+Y_aggr <- as_tibble(Y)%>%
+  group_by(Year)%>%
+  summarise(Sentiment_mean = mean(Sentiment_weight_norm), 
+            art_per_year = n())%>%
+  filter(art_per_year > 100)   #drop all years with less than 100 articles
+
+# compute yearly averages by main topic
+# -------------------------------------
+Y_aggr_lda_main <- as_tibble(Y)%>%
+  group_by(Year, LDA_topic_1_catnew)%>%
+  summarise(Sentiment_mean = mean(Sentiment_weight_norm)
+            ,art_per_year = n())
+
+# compute yearly averages by sub topic
+# -------------------------------------
+Y_aggr_lda_sub <- as_tibble(Y)%>%
+  group_by(Year, LDA_topic_1_name_new,LDA_topic_1_catnew)%>%
+  summarise(Sentiment_mean = mean(Sentiment_weight_norm)
+            ,art_per_year = n())
+
+
+# ==============================================================================
+# 2.3) Compute binary sentiment scores (polarity)
+# ==============================================================================
+
+# compute binary sentiment score (all topics)
+# -------------------------------------------
+Y_bin <- Y%>% 
+  mutate(negative = Sentiment_weight_norm < 0
+                     ,positive = Sentiment_weight_norm >= 0)%>%
+  group_by(Year)%>%
+  summarise(Sent_pos_count = sum(positive),
+            Sent_neg_count = sum(negative),
+            n = n(),
+            Sent_net = (Sent_pos_count - Sent_neg_count),
+            Sent_perc_pos = (Sent_pos_count / n) *100)
+
+# compute binary sentiment score (by main topic)
+# ----------------------------------------------
+Y_bin_lda3 <- Y%>%
+  mutate(negative = as.numeric(Sentiment_weight_norm < 0)
+         ,positive = as.numeric(Sentiment_weight_norm >= 0)
+         ,LDA_topic_1 = LDA_topic_1,LDA_topic_1_catnew=LDA_topic_1_catnew)%>%
+  group_by(Year,LDA_topic_1_catnew)%>%
+  dplyr::summarize(Sent_pos_count = sum(positive),
+            Sent_neg_count = sum(negative),
+            n = n(),
+            Sent_net = (Sent_pos_count - Sent_neg_count),
+            Sent_perc_pos = (Sent_pos_count / n) *100)
+
+# compute binary sentiment score (by main topic, english version)
+# ----------------------------------------------------------------
+Y_bin_lda3_en <- Y%>%
+  mutate(negative = as.numeric(Sentiment_weight_norm < 0)
+         ,positive = as.numeric(Sentiment_weight_norm >= 0)
+         ,LDA_topic_1 = LDA_topic_1,LDA_topic_1_catnew_en=LDA_topic_1_catnew_en)%>%
+  group_by(Year,LDA_topic_1_catnew_en)%>%
+  dplyr::summarize(Sent_pos_count = sum(positive),
+            Sent_neg_count = sum(negative),
+            n = n(),
+            Sent_net = (Sent_pos_count - Sent_neg_count),
+            Sent_perc_pos = (Sent_pos_count / n) *100)
+
+# compute binary sentiment score (by sub topic)
+# ----------------------------------------------
+Y_bin_lda11 <- Y%>%
+  mutate(negative = as.numeric(Sentiment_weight_norm < 0)
+         ,positive = as.numeric(Sentiment_weight_norm >= 0)
+         ,LDA_topic_1_name_new = LDA_topic_1_name_new
+         ,LDA_topic_1_catnew=LDA_topic_1_catnew)%>%
+  group_by(Year,LDA_topic_1_name_new)%>%
+  dplyr::summarize(Sent_pos_count = sum(positive),
+            Sent_neg_count = sum(negative),
+            n = n(),
+            Sent_net = (Sent_pos_count - Sent_neg_count),
+            Sent_perc_pos = (Sent_pos_count / n) *100)
+
+
+```
+
+## Themenanalyse
+
+Mit einen Clusteranalyseverfahren *(LDA topic modeling)* wurden 
+Themenbereiche identifiziert, welche von den Artikeln behandelt werden. Es
+wurden vier Kategorien ermittelt: Politik, Wirtschaft, Wohnraum als Lebensraum, Andere Politikfelder sowie 10 Unterthemen.
+
+Die folgende Tabelle gibt eine Übersicht über die Themen.
+
+|Nr.|Kategorie|Name|
+|-|---|----|
+|3|Politik|Regionales Wohnungsangebot und -politik (Rhein-Main)|
+|5|Politik|Wohnungspolitik im Wahlkampf (Rhein-Main)|	
+|9|Politik|Wohnungspolitik auf Bundesebene|
+|2|Wirtschaft|Miet- und Baupreisentwicklung|
+|4|Wirtschaft|Immobilienmarkt|
+|7|Wirtschaft|Wohnungsbau regional (Rhein-Main)|
+|8|Wohnraum als Lebensraum|Familienleben und Wohnumfeld|
+|1|Wohnraum als Lebensraum|Architektur und Stadtbild|
+|6|Andere Politikfelder|Außenpolitik|
+|10|Andere Politikfelder|Unternehmen und Arbeitswelt|	
+
+
+
+```{r}
+
+# ==============================================================================
+# 3) Topic analysis
+# ==============================================================================
+
+# ==============================================================================
+# 3.1 Main topics
+# ==============================================================================
+
+# number of articles per main topic
+# ---------------------------------
+ggplot(Y_aggr_lda_main, aes(x = Year))+
+    geom_col(aes(y = art_per_year)
+             , fill = c("cyan4"))+
+    facet_grid(rows=vars(LDA_topic_1_catnew)
+               ,labeller=label_wrap_gen(width = 30, multi_line = TRUE))+
+    labs(title = "Anzahl der Wohnungsmarktartikel nach Kategorien"
+       ,subtitle = "in der F.A.Z. (1950 - 2021)"
+       ,y = "Anzahl der Artikel"
+       ,x = "Jahr")+
+  theme_classic()+
+  theme(strip.text.y.right = element_text(angle = 0))
+
+
+# ==============================================================================
+# 3.2 subtopics
+# ==============================================================================
+
+# number of articles per sub topic
+# ---------------------------------
+plot1a <- ggplot(Y_aggr_lda_sub%>% 
+         filter(LDA_topic_1_catnew=="Wirtschaft"), aes(x = Year))+
+    geom_col(aes(y = art_per_year), fill = "darkgreen")+
+   labs(title = "Artikel in der Kategorie Wirtschaft"
+       ,subtitle = "in der F.A.Z. (1950 - 2021)",y = "Anzahl der Artikel"
+       ,x = "Jahr")+
+    facet_grid(rows=vars(fct_relevel(LDA_topic_1_name_new,"Miet- und Baupreisentwicklung","Immobilienmarkt","Wohnungsbau (Rhein-Main)"))
+               ,labeller=label_wrap_gen(width = 10, multi_line = TRUE))+
+  theme_classic()+
+  theme(strip.text.y.right = element_text(angle = 0,size=14)
+        ,strip.background = element_blank()
+        ,axis.text=element_text(size=14,colour="black")
+        ,axis.title=element_text(size=14))
+plot1a
+
+plot1b <- ggplot(Y_aggr_lda_sub%>% 
+         filter(LDA_topic_1_catnew=="Politik"), aes(x = Year))+
+    geom_col(aes(y = art_per_year), fill = "darkgoldenrod")+
+   labs(title = "Artikel in der Kategorie Politik"
+       ,subtitle = "in der F.A.Z. (1950 - 2021)",y = "Anzahl der Artikel"
+       ,x = "Jahr")+
+    facet_grid(rows=vars(LDA_topic_1_name_new)
+               ,labeller=label_wrap_gen(width = 22, multi_line = TRUE))+
+  theme_classic()+
+  theme(strip.text.y.right = element_text(angle = 0,size=14)
+        ,strip.background = element_blank()
+        ,axis.text=element_text(size=14,colour="black")
+        ,axis.title=element_text(size=14))
+plot1b
+
+plot1c <- ggplot(Y_aggr_lda_sub%>% 
+         filter(LDA_topic_1_catnew=="Wohnraum als Lebensraum"), aes(x = Year))+
+    geom_col(aes(y = art_per_year), fill = "darkslateblue")+
+   labs(title = "Artikel in der Kategorie Wohnraum als Lebensraum"
+       ,subtitle = "in der F.A.Z. (1950 - 2021)"
+       ,y = "Anzahl der Artikel",x = "Jahr")+
+    facet_grid(rows=vars(LDA_topic_1_name_new)
+               ,labeller=label_wrap_gen(width = 10, multi_line = TRUE))+
+  theme_classic()+
+  theme(strip.text.y.right = element_text(angle = 0,size=14)
+        ,strip.background = element_blank()
+        ,axis.text=element_text(size=14,colour="black")
+        ,axis.title=element_text(size=14))
+plot1c
+
+
+```
+
+## Betrachung der Polarität
+
+Hier werden die Ergebnisse betrachtet, die sich ergeben, wenn man für jeden 
+Artikel nur die Polarität berücksichtigt. Ein Artikel wird als entweder als 
+*positiv* oder *negativ* klassifiziert und es wird nicht mehr wie vorher die Höhe
+der emotionalen Ladung betrachtet, d.h. ein Artikel kann nicht mehr positiver als 
+ein anderer sein. Damit kann dann die Anzahl posititiv und negativ 
+klassifizierter Artikel dargestellt und verglichen werden.
+
+Die folgenden Abbildungen zeigen die Polarität der F.A.Z.-Artikel ohne 
+Themendifferenzierung.
+
+```{r}
+
+# ==============================================================================
+# 4) Polarity
+# ==============================================================================
+
+# ==============================================================================
+# 4.1) Polarity full sample (all topics)
+# ==============================================================================
+
+# plot number of positive and negative articles per year (all topics)
+# -------------------------------------------------------------------
+plot2a<- ggplot(Y_bin, aes(x = Year))+
+    geom_col(aes(y = Sent_pos_count), fill = "green")+
+    geom_col(aes(y = -Sent_neg_count), fill = "red")+
+  labs(
+    title = "Anzahl positiver und negativer Artikel zum Thema Wohnungsmarkt",
+    subtitle =  "in der F.A.Z. (1950 - 2021)",
+    y = "Anzahl der Artikel",
+    x = "Jahr")+
+    theme_bw() + theme(panel.border = element_blank()
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12))
+
+plot2a
+
+# plot net number of positive articles per year (all topics)
+# ----------------------------------------------------------
+plot2b <- ggplot(Y_bin, aes(x = Year))+
+    geom_col(aes(y = Sent_net), fill = "light blue")+
+  labs(
+    title = "Differenz positiver vs. negativer Artikel zum Thema Wohnungsmarkt",
+    subtitle =  "in der F.A.Z. (1950 - 2021)",
+    y = "Anzahl der Artikel",
+    x = "Jahr")+
+  theme_bw() + theme(panel.border = element_blank()
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12))
+
+plot2b
+
+
+# plot percentage of positive articles per year (all topics)
+# ----------------------------------------------------------
+plot2c <- ggplot(Y_bin, aes (x= Year, y = Sent_perc_pos))+
+  geom_smooth(size = 1, span = 0.2, se = F, method="loess",formula=y~x,colour="black")+
+  geom_hline(yintercept = 50, colour = "light blue", size = 1, linetype = "dashed")+
+  scale_y_continuous(expand = c(0, 0), limits=c(0,100))+
+  scale_x_continuous(expand = c(0, 0), breaks=seq(1950,2021,5)) +
+  labs(title = "Anteil positiver Artikel zum Thema Wohnungsmarkt"
+       ,subtitle = "in der F.A.Z. (1950 - 2021)"
+       ,y = "Anteil positiver Artikel in Prozent"
+       ,x = "Jahr")+
+  theme_bw() + theme(panel.border = element_blank()
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12))
+  
+plot2c
+
+
+```
+
+
+Die nächsten drei Abbildungen zeigen die Polarität der Artikel differenziert 
+nach Kategorien.
+
+```{r}
+
+# ==============================================================================
+# 4.2) Polarity by main topics
+# ==============================================================================
+
+# plot number of positive and negative articles per year (by main topic)
+# ----------------------------------------------------------------------
+
+plot3a <- ggplot(Y_bin_lda3, aes(x = Year))+
+    geom_col(aes(y = Sent_pos_count,color="positiv"), fill = "green")+
+    geom_col(aes(y = -Sent_neg_count,color="negativ"), fill = "red")+
+    geom_line(aes(y=Sent_net,color="Differenz"),size=1)+
+   facet_wrap(~LDA_topic_1_catnew)+
+  labs(
+    title = "Anzahl positiver und negativer Artikel zum Thema Wohnungsmarkt",
+    subtitle =  "in der F.A.Z. (1950 - 2021)",
+    y = "Anzahl der Artikel",
+    x = "Jahr")+
+  scale_colour_manual(name="",values=c("positiv"="green"
+                                       ,"negativ"="red","Differenz"="black")) +
+      scale_x_continuous(limits = c(1949,2022), breaks = seq(1950,2021,20))+
+    theme_bw() + theme(panel.border = element_blank()
+                     ,strip.background = element_blank()
+                     ,strip.text = element_text(size=12)
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12)
+                     )+
+  guides(color=guide_legend(override.aes=list(fill=c("black","red","green"))))
+
+plot3a
+
+# plot 3a in english
+# ------------------
+plot3b <- ggplot(Y_bin_lda3_en, aes(x = Year))+
+    geom_col(aes(y = Sent_pos_count,color="positive"), fill = "green")+
+    geom_col(aes(y = -Sent_neg_count,color="negative"), fill = "red")+
+    geom_line(aes(y=Sent_net,color="difference"),size=1)+
+   facet_wrap(~LDA_topic_1_catnew_en)+
+  labs(
+    title = "Number of positive and negative articles on housing issues",
+    subtitle =  "in the newspaper F.A.Z. (1950 - 2021)",
+    y = "number of articles",
+    x = "year")+
+  scale_colour_manual(name="",values=c("positive"="green"
+                                       ,"negative"="red","difference"="black")) +
+      scale_x_continuous(limits = c(1949,2022), breaks = seq(1950,2021,20))+
+    theme_bw() + theme(panel.border = element_blank()
+                     ,strip.background = element_blank()
+                     ,strip.text = element_text(size=12)
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12)
+                     )+
+  guides(color=guide_legend(override.aes=list(fill=c("black","red","green"))))
+
+plot3b
+
+# plot net number of positive articles per year (by main topic)
+# -------------------------------------------------------------
+plot3c <- ggplot(Y_bin_lda3, aes(x = Year))+
+    geom_col(aes(y = Sent_net), fill = "light blue")+
+  labs(
+    title = "Differenz positiver vs. negativer Artikel zum Thema Wohnungsmarkt",
+    subtitle =  "in der F.A.Z. (1950 - 2021)",y = "Anzahl der Artikel",x = "Jahr")+
+    facet_wrap(~LDA_topic_1_catnew)+
+  theme_bw() + theme(panel.border = element_blank()
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=10,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12))
+
+plot3c
+
+
+# plot percentage of positive articles per year (by main topic)
+# -------------------------------------------------------------
+plot3d <- ggplot(Y_bin_lda3, aes (x= Year, y = Sent_perc_pos))+
+  geom_smooth(aes(color = LDA_topic_1_catnew),size = 1, span = 0.2
+              , se = F, method="loess",formula=y~x)+
+  geom_hline(yintercept = 50, colour = "light blue", size = 1, linetype = "dashed")+
+  scale_color_manual(values = c("Politik" = "darkslateblue"
+                               ,"Wirtschaft" = "darkgoldenrod"
+                               ,"Wohnraum als Lebensraum" = "darkgreen"))+
+  scale_y_continuous(expand = c(0, 0), limits=c(0,100))+
+  scale_x_continuous(expand = c(0, 0), breaks=seq(1950,2021,5)) +
+  labs(title = "Anteil positiver Artikel zum Thema Wohnungsmarkt nach Kategorien"
+       ,subtitle = "in der F.A.Z. (1950 - 2021)"
+       ,y = "Anteil positiver Artikel in Prozent",x = "Jahr", color = "")+
+  theme_bw() + theme(panel.border = element_blank()
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12))+
+  guides(color = guide_legend(nrow = 3, byrow = TRUE))
+  
+plot3d
+
+```
+
+Die nächsten drei Abbildungen zeigen die Polarität der Artikel differenziert 
+nach Unterthemen.
+
+```{r}
+
+# ==============================================================================
+# 4.3) Polariy by subtopics
+# ==============================================================================
+
+# plot number of positive and negative articles per year (by sub topic)
+# ----------------------------------------------------------------------
+plot4a <- ggplot(Y_bin_lda11, aes(x = Year))+
+    geom_col(aes(y = Sent_pos_count), fill = "green")+
+    geom_col(aes(y = -Sent_neg_count), fill = "red")+
+   facet_wrap(~LDA_topic_1_name_new)+
+  labs(
+    title = "Anzahl positiver und negativer Artikel zum Thema Wohnungsmarkt",
+    subtitle =  "in der F.A.Z. (1950 - 2021)",
+    y = "Anzahl der Artikel",
+    x = "Jahr")+
+    theme_bw() + theme(panel.border = element_blank()
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12))
+
+plot4a
+
+# plot net number of positive articles per year (by main topic)
+# -------------------------------------------------------------
+plot4b <- ggplot(Y_bin_lda11, aes(x = Year))+
+    geom_col(aes(y = Sent_net), fill = "light blue")+
+  labs(
+    title = "Differenz positiver vs. negativer Artikel zum Thema Wohnungsmarkt",
+    subtitle =  "in der F.A.Z. (1950 - 2021)",
+    y = "Anzahl der Artikel",
+    x = "Jahr")+
+    facet_wrap(~LDA_topic_1_name_new)+
+  theme_bw() + theme(panel.border = element_blank()
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12))
+
+plot4b
+
+
+# plot percentage of positive articles per year (by sub topic)
+# -------------------------------------------------------------
+plot4c <- ggplot(Y_bin_lda11, aes (x= Year, y = Sent_perc_pos))+
+  geom_smooth(aes(color = LDA_topic_1_name_new),size = 1, span = 0.2
+              , se = F, method="loess",formula=y~x)+
+  geom_hline(yintercept = 50, colour = "light blue", size = 1, linetype = "dashed")+
+  scale_y_continuous(expand = c(0, 0), limits=c(0,100))+
+  scale_x_continuous(expand = c(0, 0), breaks=seq(1950,2021,5)) +
+  labs(title = "Anteil positiver Artikel zum Thema Wohnungsmarkt nach Unterthemen"
+       ,subtitle = "in der F.A.Z. (1950 - 2021)"
+       ,y = "Anteil positiver Artikel in Prozent",x = "Jahr",color="")+
+  theme_bw() + theme(panel.border = element_blank()
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour="black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                      ,legend.text = element_text(size=12))+
+  guides(color = guide_legend(nrow = 4, byrow = TRUE))
+  
+plot4c
+
+
+```
+
+## Sentimentanalyse
+
+### Sentimentwerte allgemein
+
+Zuerst werden die durchschnittlichen Sentimentwerte ohne Berücksichtigung der 
+Unterthemen geplottet.
+
+```{r,fig.width = 6, fig.height = 4}
+
+# ==============================================================================
+# 5) Weighted sentiment scores over time
+# ==============================================================================
+
+# ==============================================================================
+# 5.1) Sentiments full sample (all topics)
+# ==============================================================================
+
+# graph all topics mixed
+# ----------------------
+par(mar=c(4,3,3,1))
+plot5 <- ggplot(Y_aggr, aes(x= Year, y= Sentiment_mean))+
+  geom_col()+
+  geom_smooth(size=1,span = 0.4, se = FALSE, method="loess",formula=y~x) +
+  scale_y_continuous(expand = c(0, 0))+
+  labs(title = "Durchschnittliche Sentimentwerte der Artikel über den Wohnungsmarkt"
+       ,subtitle = "in der F.A.Z. (1950 - 2021)"
+       ,y = "Sentimentwert"
+       ,x = "Jahr")+
+    theme_bw() + theme(panel.border = element_blank()
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12))
+
+plot5
+```
+
+
+### Sentimentanalyse nach Themen
+
+Die nächsten beiden Abbildungen geben einen Überblick über die Anzahl der 
+Artikel, welche zu jedem Unterthema veröffentlicht wurden und den
+durchschnittlichen Sentimentwert innerhalb der Gruppe pro Jahr (separate barplots).
+
+
+```{r}
+
+# ==============================================================================
+# 5.2) Sentiments by main topic
+# ==============================================================================
+
+# weighted sentiment scores by main topic (barplot)
+# -------------------------------------------------
+ggplot(Y_aggr_lda_main, aes(x= Year, y= Sentiment_mean))+
+  geom_col()+
+  facet_grid(rows=vars(LDA_topic_1_catnew)
+             ,labeller=label_wrap_gen(width = 30, multi_line = TRUE))+
+  theme_classic()+
+  theme(strip.text.y.right = element_text(angle = 0))
+
+
+# ==============================================================================
+# 5.3) Sentiments by sub topic
+# ==============================================================================
+
+# weighted sentiment scores by sub topic (barplot)
+# -------------------------------------------------
+ggplot(Y_aggr_lda_sub%>% 
+         filter(LDA_topic_1_catnew=="Wirtschaft"), aes(x = Year, y= Sentiment_mean))+
+    geom_col()+
+    labs(title = "Artikel in der Kategorie Wirtschaft"
+       ,subtitle = "in der F.A.Z. (1950 - 2021)",y = "Sentimentwert",x = "Jahr")+
+    facet_grid(rows=vars(LDA_topic_1_name_new)
+               ,labeller=label_wrap_gen(width = 30, multi_line = TRUE))+
+  theme_classic()+
+  theme(strip.text.y.right = element_text(angle = 0))
+
+ggplot(Y_aggr_lda_sub%>% 
+         filter(LDA_topic_1_catnew=="Politik"), aes(x = Year, y= Sentiment_mean))+
+    geom_col()+
+    labs(title = "Artikel in der Kategorie Politik"
+       ,subtitle = "in der F.A.Z. (1950 - 2021)",y = "Sentimentwert",x = "Jahr")+
+    facet_grid(rows=vars(LDA_topic_1_name_new)
+               ,labeller=label_wrap_gen(width = 30, multi_line = TRUE))+
+  theme_classic()+
+  theme(strip.text.y.right = element_text(angle = 0))
+
+ggplot(Y_aggr_lda_sub%>% 
+         filter(LDA_topic_1_catnew=="Wohnraum als Lebensraum"), aes(x = Year, y= Sentiment_mean))+
+    geom_col()+
+    labs(title = "Artikel in der Kategorie Wohnraum als Lebensraum"
+       ,subtitle = "in der F.A.Z. (1950 - 2021)",y = "Sentimentwert",x = "Jahr")+
+    facet_grid(rows=vars(LDA_topic_1_name_new)
+               ,labeller=label_wrap_gen(width = 30, multi_line = TRUE))+
+  theme_classic()+
+  theme(strip.text.y.right = element_text(angle = 0))
+  
+```
+
+Als Line plot in dargestellt in einer Grafik:
+
+```{r}
+
+# weighted sentiment scores by main topic (line plot)
+# ---------------------------------------------------
+plot6 <- ggplot(Y_aggr_lda_main, aes(x= Year, y= Sentiment_mean))+
+  geom_smooth(aes(color = LDA_topic_1_catnew), size = 0.8, span = 0.2, se = F
+              , method="loess",formula=y~x)+
+  labs(title = "Durchschnitt Sentimentwerte von Artikeln über den Wohnungsmarkt"
+       ,subtitle = "in der F.A.Z. (1950 - 2021)",y = "Sentimentwert",x = "Jahr") +
+  scale_color_manual(values = c("Politik" = "darkslateblue"
+                               ,"Wirtschaft" = "darkgoldenrod"
+                               ,"Wohnraum als Lebensraum" = "darkgreen")
+                    ,name = element_blank()) +
+  geom_hline(yintercept = 0, colour = "light blue", size = 1, linetype = "dashed")+
+  theme_bw() + theme(panel.border = element_blank()
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12))+
+  guides(color = guide_legend(nrow = 2, byrow = TRUE))
+
+plot6
+
+# weighted sentiment scores by sub topic (line plot)
+# ---------------------------------------------------
+plot6a <- ggplot(Y_aggr_lda_sub%>% 
+         filter(LDA_topic_1_catnew=="Wirtschaft"), aes(x= Year, y= Sentiment_mean))+
+  geom_smooth(aes(color = LDA_topic_1_name_new), size = 0.8, span = 0.2, se = F
+              , method="loess",formula=y~x)+
+    scale_color_manual(values=c("darkgoldenrod4","darkorange","darkgoldenrod1"))+
+  geom_hline(yintercept = 0, colour = "light blue", size = 1, linetype = "dashed")+
+  labs(title = "Durchschnitt Sentimentwerte der Artikel"
+       ,subtitle = "in der F.A.Z. (1950 - 2021) | Kategorie Wirtschaft"
+       ,y = "Artikeldurchschnitt Sentiment"
+       ,x = "Jahr"
+       ,color = "")+
+  theme_bw() + theme(panel.border = element_blank()
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,plot.title = element_text(size=15, hjust = 0,face="bold")
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12))+
+  guides(color = guide_legend(nrow = 3, byrow = TRUE))
+
+plot6a
+
+plot6b <- ggplot(Y_aggr_lda_sub%>% 
+         filter(LDA_topic_1_catnew=="Politik"), aes(x= Year, y= Sentiment_mean))+
+  geom_smooth(aes(color = LDA_topic_1_name_new), size = 0.8, span = 0.2, se = F
+              , method="loess",formula=y~x)+
+      scale_color_manual(values=c("darkslateblue","deeppink4","darkorchid1","darksalmon"))+
+  geom_hline(yintercept = 0, colour = "light blue", size = 1, linetype = "dashed")+
+  labs(title = "Durchschnitt Sentimentwerte der Artikel"
+       ,subtitle = "in der F.A.Z. (1950 - 2021) | Kategorie Politik"
+       ,y = "Artikeldurchschnitt Sentiment"
+       ,x = "Jahr"
+       ,color = "")+
+    theme_bw() + theme(panel.border = element_blank()
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,plot.title = element_text(size=15, hjust = 0,face="bold")
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12))+
+    guides(color = guide_legend(nrow = 3, byrow = TRUE))
+
+plot6b
+
+plot6c <- ggplot(Y_aggr_lda_sub%>% 
+         filter(LDA_topic_1_catnew=="Wohnraum als Lebensraum"), aes(x= Year, y= Sentiment_mean))+
+  geom_smooth(aes(color = LDA_topic_1_name_new), size = 0.8, span = 0.2, se = F
+              , method="loess",formula=y~x)+
+        scale_color_manual(values=c("darkgreen","chartreuse3"))+
+  geom_hline(yintercept = 0, colour = "light blue", size = 1, linetype = "dashed")+
+  labs(title = "Durchschnitt Sentimentwerte der Artikel"
+       ,subtitle = "in der F.A.Z. (1950 - 2021) | Kategorie Wohnraum als Lebensraum"
+       ,y = "Artikeldurchschnitt Sentiment"
+       ,x = "Jahr"
+       ,color = "")+
+    theme_bw() + theme(panel.border = element_blank()
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,plot.title = element_text(size=15, hjust = 0,face="bold")
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12))+
+    guides(color = guide_legend(nrow = 3, byrow = TRUE))
+
+plot6c
+
+
+```
+
+
+
+## Wörter mit der höchsten positiven bzw. negativen Konnotation
+
+Die folgende Tabellen zeigen die Wörter aus den Wohnungsmarktartikeln mit der 
+höchsten positiven bzw. negativen Konnotation. 
+
+```{r}
+# ==============================================================================
+# 6) Most positive and negative words
+# ==============================================================================
+
+# most positive words (weighted by frequency)
+# -------------------------------------------
+word_pos_t <- as_tibble(words_pos)%>%
+  mutate(value_weighted = value_pos * word_freq_pos)%>%
+  group_by(words_pos)%>%
+  summarise(sum_weig_value = sum(value_weighted))%>%
+  arrange(desc(sum_weig_value))
+head(word_pos_t)
+
+# most negative words (weighted by frequency)
+# -------------------------------------------
+word_neg_t <- as_tibble(words_neg)%>%
+  mutate(value_weighted = value_neg * word_freq_neg)%>%
+  group_by(words_neg)%>%
+  summarise(sum_weig_value = sum(value_weighted),
+            number = n(),
+            value = max(value_neg))%>%
+  arrange(sum_weig_value)
+head(word_neg_t)
+
+# most positive words (weighted by frequency, sentiment value > 1)
+# ----------------------------------------------------------------
+# use only use words with sentiment value of >|1| to get more informative output
+word_pos_t_sel <- as_tibble(words_pos)%>%
+  filter(value_pos > 1)%>%
+  mutate(value_weighted = value_pos * word_freq_pos)%>%
+  group_by(words_pos)%>%
+  summarise(sum_weig_value = sum(value_weighted))%>%
+  arrange(desc(sum_weig_value))
+head(word_pos_t_sel)
+
+# most negative words (weighted by frequency, sentiment value < -1)
+# -----------------------------------------------------------------
+# use only use words with sentiment value of >|1| to get more informative output
+word_neg_t_sel <- as_tibble(words_neg)%>%
+  filter(value_neg < -1)%>%
+  mutate(value_weighted = value_neg * word_freq_neg)%>%
+  group_by(words_neg)%>%
+  summarise(sum_weig_value = sum(value_weighted),
+            number = n(),
+            value = max(value_neg)) %>%
+  arrange(sum_weig_value)
+head(word_neg_t_sel)
+```
+
+
+```{r}
+# ==============================================================================
+# 7) Clean and save
+# ==============================================================================
+
+# export data frame for comparison across newspapers
+# --------------------------------------------------
+Y_aggr_lda_sub$newsp <- "FAZ"
+saveRDS(Y_aggr_lda_sub,paste0(sFolder,sOutFile4))
+
+
+# save plots as pdf
+# ----------------
+plot_out_sentiments <- list(plot5, plot6, plot6a, plot6b, plot6c)
+plot_out_polarity <- list(plot2a,plot2b,plot2c,plot3a, plot3b, plot3c, plot3d, plot4a
+                          ,plot4b,plot4c)
+
+pdf(paste0(sFolder,sOutFile1),width=7, height=5)
+plot_out_sentiments
+dev.off()
+
+pdf(paste0(sFolder,sOutFile2),width=7, height=5)
+plot_out_polarity
+dev.off()
+
+pdf(paste0(sFolder,sOutFile3),width=7, height=5)
+list(plot1a,plot1b,plot1c)
+dev.off()
+
+# ==============================================================================
+# End of file
+# ==============================================================================
+```

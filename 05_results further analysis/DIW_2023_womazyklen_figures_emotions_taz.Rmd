@@ -1,0 +1,528 @@
+---
+title: "Emotion analysis results: taz (die tageszeitung)"
+author: "Felix Aubele"
+date: "01-12-2022"
+output:
+  pdf_document: default
+  html_document: default
+  editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+rm(list = ls())
+# ==============================================================================
+#                             DIW Berlin
+#
+# Project:  Wohnkosten, Lebenszufriedenheit, Sicherheitsempfinden und Narrative: 
+#           Eine Betrachtung der langfristigen Verteilungswirkungen von
+#           Wohnungsmarktzyklen (2020-2023)
+#
+# ------------------------------------------------------------------------------
+#
+#	 	CONTENT: RESULTS FROM EMOTION ANALYSIS (taz)
+#
+# 	OUTLINE: PART 1: Load results from emotion analysis
+#				     PART 2: Clean and recode data
+#                 2.1 Rename topics and categories
+#                 2.2 Aggregate emotion scores to main and sub topic level
+#				     PART 3:List with top words per emotion
+#				     PART 4: Plots
+#                 4.1 Full sample
+#                 4.2 By main topic
+#                 4.3 By sub topic
+#                 4.4 By sub-sub topic
+#
+# -------------------------------------------------------------------------------
+# code author: Felix Aubele (DIW Berlin)
+#
+#
+# First created --- November 8, 2022										
+# Last modified --- December 01, 2022 (cs)
+# ------------------------------------------------------------------------------
+# content: Analyses the emotions in the housing market articles of the newspaper
+# 'taz'.
+# ==============================================================================
+
+# ==============================================================================
+# 0) Initial settings
+# ==============================================================================
+
+# load libraries
+# --------------
+library(openxlsx)
+library(stringr) # To use function str_replace
+library(XML)
+library(tidyverse)
+library(patchwork)
+library(viridis)
+
+# set R system language (including dates etc.) to German
+# ------------------------------------------------------
+Sys.setlocale('LC_ALL', 'german')
+
+
+# define threshold of keywords for article selection
+# --------------------------------------------------
+cKeyword1 = 1  #old keyword list
+cKeyword2 = 1   #new keyword list
+
+# select keyword approach
+# -----------------------
+vKeyword1 = "new"
+
+# choose emotions dictionary
+# --------------------------
+dict = "custom_nrc"
+
+# with or without lemmatization
+# -----------------------------
+lemma = "with"
+
+
+# define paths and data input/output names
+# ----------------------------------------
+sFolder1 = "" # path where data, drafts etc. are stored
+sFolder2 = "" # path where data, drafts etc. are stored
+
+sInFile1 = paste("Data/taz/articlelists_sentiment/emotion_analysis_taz_Housing_", dict,"_", lemma, "_lemma.xlsx", sep="")
+sInFile2 = "Data/nrc/Housing_emotion_custom_dict.xlsx"
+sInFile3 = "data pre-processing/German_specific_letters.xlsx"
+sInFile4 = paste("Data/taz/articlelists_sentiment/emotion_analysis_taz_Housing_substudy_", dict,"_", lemma, "_lemma.xlsx", sep="")
+
+sInFile5 = paste0("Data/taz/articlelists_sentiment/taz_Housing_emotion_count ", dict, ".xlsx")
+sInFile6 = paste0("Data/taz/articlelists_sentiment/taz_Housing_emotion_count.xlsx")
+
+sOutFile = "Draft/figures/sentiment-analysis/emotion analysis/fig_emotion_analysis_taz.pdf"
+```
+
+
+
+```{r}
+
+# ==============================================================================
+# 1) Load results from emotion analysis
+# ==============================================================================
+
+# load data
+# ----------
+Y = read.xlsx(paste(sFolder1, sInFile1, sep=""))
+
+# only rent market related articles
+# --------------------------------
+Y_sub =  read.xlsx(paste(sFolder1, sInFile4, sep=""))
+
+# number of emotional words in text
+# ---------------------------------
+emotions_count_full = read.xlsx(paste(sFolder1, sInFile6, sep=""))
+
+```
+
+## Datenaufbereitung
+
+```{r}
+
+# ==============================================================================
+# 2) Clean and recode data
+# ==============================================================================
+
+# ==============================================================================
+# 2.1) Rename topics and categories
+# ==============================================================================
+
+# filter unique articles and replace NAs
+# --------------------------------------
+Y = unique(Y)
+Y = replace(Y, is.na(Y), 0)
+
+
+# recode 'Year' as numeric
+# -------------------------
+Y$Year <- as.integer(Y$Year)
+Y_sub$Year <- as.integer(Y_sub$Year)
+
+# recode main topics
+# ------------------
+Y = Y %>% mutate(LDA_topic_1_catnew = case_when(
+  LDA_topic_1==2 |  LDA_topic_1==5  |  LDA_topic_1==6 |  LDA_topic_1==10 ~ "Politik"
+  ,LDA_topic_1==1 |  LDA_topic_1==3 ~ "Wirtschaft"
+  ,LDA_topic_1==7 |  LDA_topic_1==4 | LDA_topic_1==8 ~ "Andere Politikfelder"
+  ,LDA_topic_1==9 |  LDA_topic_1==11 ~ "Wohnraum als Lebensraum"))
+table(Y$LDA_topic_1_catnew,useNA="ifany")
+
+
+# recode sub topics
+# ------------------
+Y = Y %>% mutate(LDA_topic_1_name_new = case_when(
+  LDA_topic_1==1 ~ "Wohnungsbau (Hamburg)"
+  , LDA_topic_1==2 ~ "Situation von Geflüchteten"
+  , LDA_topic_1==3 ~ "Wohnungsmarkt und Mietrecht"
+  , LDA_topic_1==4 ~ "Weltpoltik"
+  , LDA_topic_1==5 ~ "Hausbesetzungen (Berlin)"
+  , LDA_topic_1==6 ~ "Wohnungspolitik (Bremen)"
+  , LDA_topic_1==7 ~ "Energiewirtschaft"
+  , LDA_topic_1==8 ~ "Kultur"
+  , LDA_topic_1==9 ~ "Familienleben und Wohnumfeld"
+  , LDA_topic_1==10 ~ "Wohnungspolitik im Wahlkampf (Berlin)"
+  , LDA_topic_1==11 ~ "Architektur und öffentlicher Raum"))
+table(Y$LDA_topic_1_name_new,useNA="ifany")
+
+
+# recode sub-sub topic names
+# ------------------
+Y_sub = Y_sub %>% mutate(LDA_topic_1_name_new = case_when(
+  LDA_topic_1== 1 ~ "Politische Interventionen am Wohnungsmarkt"
+  ,LDA_topic_1== 2 ~ "Wohneigentum"
+  ,LDA_topic_1== 4  ~ "Kontroversen um Wohnungsbau- gesellschaften"
+  ,LDA_topic_1== 6  ~ "Mietrecht"
+  ,LDA_topic_1== 5  ~ "Wohnsituation ALGII-Empfänger/ Wohnungslose"
+  ,  TRUE ~ LDA_topic_1_name))
+table(Y$LDA_topic_1_name,useNA="ifany")
+
+# Delete all articles with category 'Andere Politikfelder'
+# --------------------------------------------------------
+Y_relev = Y %>% filter(LDA_topic_1_catnew!= "Andere Politikfelder")
+table(Y$LDA_topic_1_catnew,useNA="ifany")
+
+# rename columns
+# --------------
+Y_relev = Y_relev %>% rename(Thema = LDA_topic_1_name_new
+                             , Kategorie = LDA_topic_1_catnew)
+Y_sub = Y_sub %>% rename(Thema=LDA_topic_1_name_new)
+
+#create list with german emotion names
+# -------------------------------------
+emotions <- c("Wut", "Erwartung", "Ekel","Angst", "Freude", "Traurigkeit"
+              , "Überraschung", "Vertrauen")
+
+
+
+# ==============================================================================
+# 2.2) Aggregate emotion scores to main and sub topic level
+# ==============================================================================
+
+
+# full sample: calculate average of emotion score per year
+# ---------------------------------------------------------
+Y_aggr <- as_tibble(Y)%>%
+  mutate(
+    Anger_weight = (Anger_weight/n_words)*100,
+    Anticipation_weight = (Anticipation_weight/n_words)*100,
+    Disgust_weight = (Disgust_weight/n_words)*100,
+    Fear_weight = (Fear_weight/n_words)*100,
+    Joy_weight = (Joy_weight/n_words)*100,
+    Sadness_weight = (Sadness_weight/n_words)*100,
+    Surprise_weight = (Surprise_weight/n_words)*100,
+    Trust_weight = (Trust_weight/n_words)*100
+  )%>%
+  group_by(Year)%>%
+  summarise(
+    Anger_mean = mean(Anger_weight),
+    Anticipation_mean = mean(Anticipation_weight),
+    Disgust_mean = mean(Disgust_weight),
+    Fear_mean = mean(Fear_weight),
+    Joy_mean = mean(Joy_weight),
+    Sadness_mean = mean(Sadness_weight),
+    Surprise_mean = mean(Surprise_weight),
+    Trust_mean = mean(Trust_weight)
+  )
+
+
+# main topic: calculate average of emotion score per year and main topic
+# ----------------------------------------------------------------------
+Y_aggr_categ <- as_tibble(Y_relev)%>%
+   mutate(
+    Anger_weight = (Anger_weight/n_words)*100,
+    Anticipation_weight = (Anticipation_weight/n_words)*100,
+    Disgust_weight = (Disgust_weight/n_words)*100,
+    Fear_weight = (Fear_weight/n_words)*100,
+    Joy_weight = (Joy_weight/n_words)*100,
+    Sadness_weight = (Sadness_weight/n_words)*100,
+    Surprise_weight = (Surprise_weight/n_words)*100,
+    Trust_weight = (Trust_weight/n_words)*100
+  )%>%
+  group_by(Year, Kategorie)%>%
+  summarise(
+    Anger_mean = mean(Anger_weight),
+    Anticipation_mean = mean(Anticipation_weight),
+    Disgust_mean = mean(Disgust_weight),
+    Fear_mean = mean(Fear_weight),
+    Joy_mean = mean(Joy_weight),
+    Sadness_mean = mean(Sadness_weight),
+    Surprise_mean = mean(Surprise_weight),
+    Trust_mean = mean(Trust_weight)
+  )
+
+# sub topics: calculate average of emotion score per year and sub topic
+# ----------------------------------------------------------------------
+Y_aggr_lda <- as_tibble(Y_relev)%>%
+   mutate(
+    Anger_weight = (Anger_weight/n_words)*100,
+    Anticipation_weight = (Anticipation_weight/n_words)*100,
+    Disgust_weight = (Disgust_weight/n_words)*100,
+    Fear_weight = (Fear_weight/n_words)*100,
+    Joy_weight = (Joy_weight/n_words)*100,
+    Sadness_weight = (Sadness_weight/n_words)*100,
+    Surprise_weight = (Surprise_weight/n_words)*100,
+    Trust_weight = (Trust_weight/n_words)*100
+  )%>%
+  group_by(Year, Thema)%>%
+  summarise(
+    Anger_mean = mean(Anger_weight),
+    Anticipation_mean = mean(Anticipation_weight),
+    Disgust_mean = mean(Disgust_weight),
+    Fear_mean = mean(Fear_weight),
+    Joy_mean = mean(Joy_weight),
+    Sadness_mean = mean(Sadness_weight),
+    Surprise_mean = mean(Surprise_weight),
+    Trust_mean = mean(Trust_weight)
+  )
+
+# sub-sub topics: calculate average of emotion score per year and sub-sub topic
+# -----------------------------------------------------------------------------
+Y_aggr_sub_lda <- as_tibble(Y_sub)%>%
+   mutate(
+    Anger_weight = (Anger_weight/n_words)*100,
+    Anticipation_weight = (Anticipation_weight/n_words)*100,
+    Disgust_weight = (Disgust_weight/n_words)*100,
+    Fear_weight = (Fear_weight/n_words)*100,
+    Joy_weight = (Joy_weight/n_words)*100,
+    Sadness_weight = (Sadness_weight/n_words)*100,
+    Surprise_weight = (Surprise_weight/n_words)*100,
+    Trust_weight = (Trust_weight/n_words)*100
+  )%>%
+  group_by(Year, Thema)%>%
+  summarise(
+    Anger_mean = mean(Anger_weight),
+    Anticipation_mean = mean(Anticipation_weight),
+    Disgust_mean = mean(Disgust_weight),
+    Fear_mean = mean(Fear_weight),
+    Joy_mean = mean(Joy_weight),
+    Sadness_mean = mean(Sadness_weight),
+    Surprise_mean = mean(Surprise_weight),
+    Trust_mean = mean(Trust_weight)
+  )
+
+
+# reshape data frame: columns to rows
+# -----------------------------------
+Y_aggr_long <- gather(Y_aggr, key = Emotion, value = Value, 2:9)
+Y_aggr_categ_long <- gather(Y_aggr_categ, key = Emotion, value = Value, 3:10)
+Y_aggr_lda_long <- gather(Y_aggr_lda, key = Emotion, value = Value, 3:10)
+Y_aggr_lda_long <- gather(Y_aggr_lda, key = Emotion, value = Value, 3:10)
+Y_aggr_sub_lda_long <- gather(Y_aggr_sub_lda, key = Emotion, value = Value, 3:10)
+
+
+```
+
+## Liste der Top-Emotionen-Wörter
+
+
+```{r}
+
+# ==============================================================================
+# 3) List with top words per emotion
+# ==============================================================================
+
+# top word per emotion 
+# -------------------
+top_10 <- emotions_count_full %>%                                     
+  arrange(desc(importance)) %>% 
+  group_by(Emotion) %>%
+  slice(1:10)
+
+# display as latex table
+# ----------------------
+knitr::kable(top_10, "simple")
+
+
+# how many words could be associated with an emotion score from NRC?
+# -------------------------------------------------------------------
+emotion_share = sum(emotions_count_full$Count)/sum(Y$n_words)
+emotion_share
+
+```
+
+
+## Plots
+
+```{r}
+
+# ==============================================================================
+# 4) Plots
+# ==============================================================================
+
+# ==============================================================================
+# 4.1) Full sample
+# ==============================================================================
+
+
+# full sample: plot average emotion scores per year
+#-------------------------------------------------
+plot1 <- ggplot(Y_aggr, aes(x = Year))+
+  #geom_line(aes(y = Anger_mean, color = emotions[1]), size = 1)+
+  #geom_line(aes(y = Anticipation_mean, color = emotions[2]), size  = 1)+
+  #geom_line(aes(y = Disgust_mean, color = emotions[3]), size  = 1)+
+  #geom_line(aes(y = Fear_mean, color = emotions[4]), size  = 1)+
+  #geom_line(aes(y = Joy_mean, color = emotions[5]), size  = 1)+
+  #geom_line(aes(y = Sadness_mean, color = emotions[6]), size  = 1)+
+  #geom_line(aes(y = Surprise_mean, color = emotions[7]), size  = 1)+
+  #geom_line(aes(y = Trust_mean, color = emotions[8]), size  = 1)+
+  geom_smooth(aes(y = Anger_mean, color = emotions[1]), size = 1, span = 0.1, se = F)+
+  geom_smooth(aes(y = Anticipation_mean, color = emotions[2]), size = 1, span = 0.1, se = F)+
+  geom_smooth(aes(y = Disgust_mean, color = emotions[3]), size = 1, span = 0.1, se = F)+
+  geom_smooth(aes(y = Fear_mean, color = emotions[4]), size = 1, span = 0.1, se = F)+
+  geom_smooth(aes(y = Joy_mean, color = emotions[5]), size = 1, span = 0.1, se = F)+
+  geom_smooth(aes(y = Sadness_mean, color = emotions[6]), size = 1, span = 0.1, se = F)+
+  geom_smooth(aes(y = Surprise_mean, color = emotions[7]), size = 1, span = 0.1, se = F)+
+  geom_smooth(aes(y = Trust_mean, color = emotions[8]), size = 1, span = 0.1, se = F)+
+    scale_colour_manual(name="", breaks = emotions,
+                      values = c("red", "blue", "green", "black", "yellow", "light blue", "orange", "purple"))+
+      scale_y_continuous(expand = c(0, 0), limits=c(0,1.6),breaks=seq(0,1.5,0.5)) +
+  theme_classic()+
+  theme(legend.position="bottom"
+        ,legend.text = element_text(size=12)
+        ,axis.text=element_text(size=12,colour="black"))+
+  labs(x = "",y = "Emotionenwert")
+
+plot1
+
+# ==============================================================================
+# 4.2) Main topics
+# ==============================================================================
+
+# plot by main topics (Kategorien)
+# -------------------------------
+
+plot2 <- ggplot(Y_aggr_categ_long, aes(x = Year, y = Value, color = Emotion))+
+         #geom_smooth(size = 1, span = 0.1, se = F)+
+         geom_line(size = 1)+
+  scale_colour_manual(name="",values = c("red", "blue", "green", "black", "yellow", 
+                                 "light blue", "orange", "purple"),
+                      labels = emotions)+
+  facet_wrap(~Kategorie, labeller = labeller(Kategorie =label_wrap_gen(25)))+
+  labs(x = "",y = "Emotionenwert")+
+    scale_x_continuous(expand = c(0, 0), limits=c(1990,2021),breaks=seq(1995,2015,10)) +
+    theme_bw() + theme(panel.border = element_blank()
+                     ,strip.background = element_blank()
+                     ,strip.text = element_text(size=12)
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12)
+                     )
+
+plot2
+
+# ==============================================================================
+# 4.3) Sub topics
+# ==============================================================================
+
+# plot by sub topics
+# -----------------
+plot3 <- ggplot(Y_aggr_lda, aes(x = Year))+
+  #geom_line(aes(y = Anger_mean, color = emotions[1]))+
+  #geom_line(aes(y = Anticipation_mean, color = emotions[2]))+
+  #geom_line(aes(y = Disgust_mean, color = emotions[3]))+
+  #geom_line(aes(y = Fear_mean, color = emotions[4]))+
+  #geom_line(aes(y = Joy_mean, color = emotions[5]))+
+  #geom_line(aes(y = Sadness_mean, color = emotions[6]))+
+  #geom_line(aes(y = Surprise_mean, color = emotions[7]))+
+  #geom_line(aes(y = Trust_mean, color = emotions[8]))+
+    geom_smooth(aes(y = Anger_mean, color = emotions[1]), size = 1, span = 0.1, se = F)+
+    geom_smooth(aes(y = Anticipation_mean, color = emotions[2]), size = 1, span = 0.1, se = F)+
+    geom_smooth(aes(y = Disgust_mean, color = emotions[3]), size = 1, span = 0.1, se = F)+
+    geom_smooth(aes(y = Fear_mean, color = emotions[4]), size = 1, span = 0.1, se = F)+
+    geom_smooth(aes(y = Joy_mean, color = emotions[5]), size = 1, span = 0.1, se = F)+
+    geom_smooth(aes(y = Sadness_mean, color = emotions[6]), size = 1, span = 0.1, se = F)+
+    geom_smooth(aes(y = Surprise_mean, color = emotions[7]), size = 1, span = 0.1, se = F)+
+    geom_smooth(aes(y = Trust_mean, color = emotions[8]), size = 1, span = 0.1, se = F)+
+    scale_colour_manual(name="", breaks = emotions,
+                      values = c("red", "blue", "green", "black", "yellow", "light blue", "orange", "purple"))+
+  facet_wrap(vars(Thema), labeller=label_wrap_gen(width = 25, multi_line = TRUE))+
+  labs(x = "",y = "Emotionenwert")+
+  scale_y_continuous(expand = c(0, 0), limits=c(0,1.5),breaks=seq(0,1.5,1)) +
+  scale_x_continuous(expand = c(0, 0), limits=c(1990,2021),breaks=seq(1995,2015,10)) +
+    theme_bw() + theme(panel.border = element_blank()
+                     ,strip.background = element_blank()
+                     ,strip.text = element_text(size=12)
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12)
+                     )
+
+
+plot3
+
+# ==============================================================================
+# 4.4) Sub-sub topics
+# ==============================================================================
+
+#plot sub-sub topics (rental market)
+#-----------------------------------
+plot4 <- ggplot(Y_aggr_sub_lda, aes(x = Year))+
+    geom_smooth(aes(y = Anger_mean, color = emotions[1]), size = 1, span = 0.2
+                , se = F)+
+    geom_smooth(aes(y = Anticipation_mean, color = emotions[2]), size = 1
+                , span = 0.2, se = F)+
+    geom_smooth(aes(y = Disgust_mean, color = emotions[3]), size = 1
+                , span = 0.2, se = F)+
+    geom_smooth(aes(y = Fear_mean, color = emotions[4]), size = 1
+                , span = 0.2, se = F)+
+    geom_smooth(aes(y = Joy_mean, color = emotions[5]), size = 1, span = 0.2
+                , se = F)+
+    geom_smooth(aes(y = Sadness_mean, color = emotions[6]), size = 1, span = 0.2
+                , se = F)+
+    geom_smooth(aes(y = Surprise_mean, color = emotions[7]), size = 1
+                , span = 0.2, se = F)+
+    geom_smooth(aes(y = Trust_mean, color = emotions[8]), size = 1, span = 0.2
+                , se = F)+
+    scale_colour_manual(name="", breaks = emotions,
+                      values = c("red", "blue", "green", "black", "yellow"
+                                 , "light blue", "orange", "purple"))+
+  facet_wrap(vars(Thema), labeller=label_wrap_gen(width = 25, multi_line = TRUE))+
+  labs(x = "",y = "Emotionenwert")+
+  scale_y_continuous(expand = c(0, 0), limits=c(0,1.5),breaks=seq(0,1.5,1)) +
+  scale_x_continuous(expand = c(0, 0), limits=c(1991,2021),breaks=seq(1995,2015,10)) +
+    theme_bw() + theme(panel.border = element_blank()
+                     ,strip.background = element_blank()
+                     ,strip.text = element_text(size=12)
+                     ,panel.grid.major = element_blank()
+                     ,panel.grid.minor = element_blank()
+                     ,axis.line = element_line(colour = "black")
+                     ,axis.text=element_text(size=12,colour="black")
+                     ,legend.position = "bottom"
+                     ,legend.text = element_text(size=12)
+                     )
+plot4
+
+
+# ==============================================================================
+# 5) Clean and save
+# ==============================================================================
+
+# save plots as pdf
+# ---------------
+plot_out <- list(plot1, plot2, plot3,plot4)
+
+
+pdf(paste0(sFolder1, sOutFile),width=7, height=5)
+plot_out
+dev.off()
+
+# ==============================================================================
+# End of file
+# ==============================================================================
+```
+
+
