@@ -29,7 +29,7 @@ Second, we apply the following steps for pre-processing:
 
 ## Topic model
 
-We estimate a _Latent Dirichlet Allocation (LDA) model_ with 8 topics for each media outlet and the minutes from the parliamentary proceedings.
+We estimate a _Latent Dirichlet Allocation (LDA) model_ with 8 topics for each media outlet and the minutes from the plenary proceedings.
 
 
 ## Sentiment and emotion analysis
