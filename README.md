@@ -42,5 +42,5 @@ Finally, we analyze the sentiments and emotions of the newspaper articles and th
 
 ## Further reading
 
-The results are published in Aubele, F..; Baake, P.; Duso, T.; Kholodilin, K.A.; Pfeiffer, L.; Stiel, C. (2023): [Wohnkosten, Lebenszufriedenheit, Sicherheitsempfinden und Narrative: Eine Betrachtung der langfristigen Verteilungswirkungen von Wohnungsmarktzyklen (WLSN).](https://www.diw.de/documents/publikationen/73/diw_01.c.887817.de/diwkompakt_2023-199.pdf) Politikberatung kompakt 199. DIW Berlin.
+The results are published in Aubele, F..; Baake, P.; Duso, T.; Kholodilin, K.A.; Pfeiffer, L.; Stiel, C. (2023): [Wohnkosten, Lebenszufriedenheit, Sicherheitsempfinden und Narrative: Eine Betrachtung der langfristigen Verteilungswirkungen von Wohnungsmarktzyklen (WLSN).](https://www.diw.de/de/diw_01.c.887843.de/publikationen/politikberatung_kompakt/2023_0199/wohnkosten__lebenszufriedenheit__sicherheitsempfinden_und_na___gswirkungen_von_wohnungsmarktzyklen__wlsn___abschlussbericht.html) Politikberatung kompakt 199. DIW Berlin.
 
