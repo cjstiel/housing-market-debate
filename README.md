@@ -3,7 +3,7 @@
 research project _Wohnkosten, Lebenszufriedenheit, Sicherheitsempfinden und Narrative: Eine Betrachtung der langfristigen Verteilungswirkungen von Wohnungsmarktzyklen (WLSN)_ at DIW Berlin
  | 2020-2023
 
-Contributors: Felix Aubele, Konstantin Kholodilin, Linus Pfeiffer, Caroline Stiel 
+Contributors: Felix Aubele, Konstantin A. Kholodilin, Linus Pfeiffer, Caroline Stiel 
 
 The following codes describe how the data is pre-processed and analyzed using `R`.
 
