@@ -1,4 +1,4 @@
-# The housing market in public and political debate: a text analysis
+# The housing market in public and political debate: a text analysis using natural language processing (NLP)
 
 research project _Wohnkosten, Lebenszufriedenheit, Sicherheitsempfinden und Narrative: Eine Betrachtung der langfristigen Verteilungswirkungen von Wohnungsmarktzyklen (WLSN)_ at DIW Berlin
  | 2020-2023
